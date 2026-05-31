@@ -221,7 +221,6 @@
         // --- STREAMING_CHUNK: Defining sorting question component (SortableJS + React) ---
         const SortQuestion = ({ q, userAnswer, setUserAnswer, feedback }) => {
           const areaRef = useRef(null);
-          const bankRef = useRef(null);
           const [tiles, setTiles] = useState([]); 
 
           // 質問が変わるたびにStateを初期化＆シャッフル
@@ -237,7 +236,7 @@
             setUserAnswer('');
           }, [q]);
 
-          // タイルクリック時のトグル移動
+          // タイルクリック時のトグル移動（仮想DOMと物理DOM不整合を100%回避するベストプラクティス）
           const handleTileClick = (tileId) => {
             if (feedback) return; 
             playFallback('pop');
@@ -247,7 +246,7 @@
                   return { 
                     ...t, 
                     location: t.location === 'bank' ? 'area' : 'bank', 
-                    order: Date.now() 
+                    order: t.location === 'bank' ? Date.now() : t.order 
                   };
                 }
                 return t;
@@ -264,36 +263,41 @@
             });
           };
 
-          // SortableJSをバインドしてドラッグを有効化
+          // SortableJSをバインドしてエリア内だけのドラッグを有効化
           useEffect(() => {
-            if (!areaRef.current || !bankRef.current || feedback) return;
+            if (!areaRef.current || feedback) return;
 
             const sortableArea = window.Sortable.create(areaRef.current, {
-              group: 'sorting',
               animation: 150,
               ghostClass: 'sortable-ghost',
               onEnd: () => {
                 playFallback('pop');
-                // DOM上の物理的な配置順から並びを吸い出して同期
-                const currentWords = Array.from(areaRef.current.children).map(el => el.getAttribute('data-word'));
-                setUserAnswer(currentWords.join(' '));
-              }
-            });
+                // DOM上の配置順からIDリストを抽出
+                const orderedIds = Array.from(areaRef.current.children).map(el => el.getAttribute('data-id'));
+                
+                setTiles(prev => {
+                  const updated = prev.map(t => {
+                    const newIndex = orderedIds.indexOf(t.id);
+                    if (newIndex !== -1) {
+                      return { ...t, order: newIndex };
+                    }
+                    return t;
+                  });
 
-            const sortableBank = window.Sortable.create(bankRef.current, {
-              group: 'sorting',
-              animation: 150,
-              ghostClass: 'sortable-ghost',
-              onEnd: () => {
-                playFallback('pop');
-                const currentWords = Array.from(areaRef.current.children).map(el => el.getAttribute('data-word'));
-                setUserAnswer(currentWords.join(' '));
+                  // エリア内の単語を正しい並び順で回答に反映
+                  const areaWords = updated
+                    .filter(t => t.location === 'area')
+                    .sort((a, b) => a.order - b.order)
+                    .map(t => t.word)
+                    .join(' ');
+                  setUserAnswer(areaWords);
+                  return updated;
+                });
               }
             });
 
             return () => {
               sortableArea.destroy();
-              sortableBank.destroy();
             };
           }, [tiles, feedback]);
 
@@ -323,9 +327,8 @@
               </div>
 
               <div>
-                <div className="text-xs text-slate-400 mb-1 font-bold pl-1 uppercase tracking-wider">単語リスト (ドラッグまたはタップ)</div>
+                <div className="text-xs text-slate-400 mb-1 font-bold pl-1 uppercase tracking-wider">単語リスト (タップして並べ替えエリアに配置)</div>
                 <div 
-                  ref={bankRef}
                   className="flex flex-wrap gap-2 justify-center bg-slate-100 rounded-xl p-4 min-h-[120px]"
                 >
                   {bankTiles.map(t => (
@@ -511,9 +514,9 @@
           const checkAnswer = () => {
             const q = questions[currentQIndex];
             
-            // 英文チェック時の揺らぎ（末尾スペースや大文字小文字の違い）を吸収するノーマライズ
-            const cleanUser = userAnswer.trim().replace(/\s+/g, ' ').toLowerCase();
-            const cleanCorrect = q.correctAnswer.trim().replace(/\s+/g, ' ').toLowerCase();
+            // 英文チェック時の揺らぎ（末尾スペースや大文字小文字、ピリオド等の有無）を吸収する簡易ノーマライズ
+            const cleanUser = userAnswer.trim().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s+/g, ' ').toLowerCase();
+            const cleanCorrect = q.correctAnswer.trim().replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g,"").replace(/\s+/g, ' ').toLowerCase();
             const isCorrect = cleanUser === cleanCorrect;
 
             if (isCorrect) {
@@ -630,7 +633,6 @@
                   </React.Fragment>
                 )}
 
-                {}
                 {quizState === 'playing' && (
                   <React.Fragment>
                     <div className="px-4 py-4 flex items-center justify-between w-full bg-white shadow-sm z-10 shrink-0">
@@ -713,7 +715,6 @@
                   </React.Fragment>
                 )}
 
-                {}
                 {quizState === 'result' && (
                   <main className="flex-1 overflow-y-auto px-4 pt-12 pb-32 w-full max-w-2xl mx-auto relative no-scrollbar">
                     <div className="flex flex-col items-center justify-center">
@@ -750,7 +751,6 @@
             );
           }
 
-          {}
           return (
             <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-24 app-container">
               {showInstallGuide && <InstallGuideModal />}
